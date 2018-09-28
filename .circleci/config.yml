@@ -70,7 +70,29 @@ jobs:
             - ~/.cache/yarn
           key: 'yarn-packages-v1-{{ checksum "web/init/yarn.lock" }}'
 
-  e2e-init:
+  e2e-init-cypress:
+    docker:
+      - image: circleci/node:9
+    working_directory: ~/repo
+    steps:
+      - restore_cache:
+          keys:
+            - cypress-3.1.0-{{ checksum "/Cypress/3.1.0" }}
+      - run: |
+          curl https://download.cypress.io/desktop/3.1.0?platform=linux64 -L -o cypress.zip
+          mkdir -p Cypress/3.1.0
+          unzip -q cypress.zip -d Cypress/3.1.0
+      - save_cache:
+          paths:
+            - Cypress/3.1.0
+          key: cypress-3.1.0-{{ checksum "cypress.zip" }}
+
+      - persist_to_workspace:
+          root: ~/repo
+          paths:
+            - Cypress
+
+  e2e-init-build-ui:
     docker:
       - image: circleci/node:9
     working_directory: ~/repo
@@ -79,26 +101,38 @@ jobs:
       - setup_remote_docker
       - restore_cache:
           keys:
-            - yarn-packages-v1-{{ checksum "web/init/yarn.lock" }}-{{ checksum "web/app/yarn.lock" }}
-            - yarn-packages-v1-{{ checksum "web/init/yarn.lock" }}
-            - yarn-packages-v1-
+            - yarn-packages-v2-{{ checksum "web/init/yarn.lock" }}-{{ checksum "web/app/yarn.lock" }}
+            - yarn-packages-v2-{{ checksum "web/init/yarn.lock" }}
+            - yarn-packages-v2-
       - run:
           name: Build UI
           command: make build-ui
+      - save_cache:
+          paths:
+            - ~/.cache/yarn
+            - web/app/node_modules
+            - web/init/node_modules
+          key: yarn-packages-v2-{{ checksum "web/init/yarn.lock" }}-{{ checksum "web/app/yarn.lock" }}
+      - persist_to_workspace:
+          root: ~/repo
+          paths:
+            - web/app/build
+
+  e2e-init:
+    docker:
+      - image: circleci/node:9
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - setup_remote_docker
+      - attach_workspace:
+          at: ~/repo
       - run:
           name: Build Ship Cypress Docker Image
           command: docker build -t replicatedhq/ship-cypress:latest -f ./web/app/cypress/Dockerfile .
       - run:
           name: Run Ship Cypress Tests
           command: docker run -it replicatedhq/ship-cypress:latest
-      - save_cache:
-          paths:
-            - ~/.cache/yarn
-            - web/app/node_modules
-            - web/init/node_modules
-            - web/init/dist
-            - web/app/build
-          key: yarn-packages-v1-{{ checksum "web/init/yarn.lock" }}-{{ checksum "web/app/yarn.lock" }}
 
   integration:
     machine: true
@@ -221,36 +255,12 @@ workflows:
   # unstable deploys the `unstable` tag to dockerhub, no releases to github (for now)
   unstable:
     jobs:
-      - test_ui
-      - integration
-      - test
-      - e2e-init
-      - build_ui
-      - deploy_ship_init:
+      - e2e-init-cypress
+      - e2e-init-build-ui
+      - e2e-init:
           requires:
-          - build_ui
-          - test_ui
-          - e2e-init
-          filters:
-            branches:
-              only: /master/
-      - deploy_unstable:
-          requires:
-          - test
-          - integration
-          - build_ui
-          - test_ui
-          - e2e-init
-          filters:
-            branches:
-              only: /master/
-      - deploy_integration:
-          requires:
-          - integration
-          - deploy_unstable
-          filters:
-            branches:
-              only: /master/
+          - e2e-init-cypress
+          - e2e-init-build-ui
 
   # Stable deploys the `alpha` and `latest` tags to dockerhub and github
   stable:

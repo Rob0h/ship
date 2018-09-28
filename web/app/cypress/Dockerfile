@@ -2,21 +2,21 @@
 FROM avcosystems/golang-node as build-step
 ENV GOPATH=/go
 RUN apt-get install bzip2
-ADD . /go/src/github.com/replicatedhq/ship
+COPY .git /go/src/github.com/replicatedhq/ship/.git
+COPY hack /go/src/github.com/replicatedhq/ship/hack
+COPY web/app/build /go/src/github.com/replicatedhq/ship/web/app/build
+COPY cmd /go/src/github.com/replicatedhq/ship/cmd
+COPY pkg /go/src/github.com/replicatedhq/ship/pkg
+COPY vendor /go/src/github.com/replicatedhq/ship/vendor
+COPY Makefile /go/src/github.com/replicatedhq/ship/Makefile
 WORKDIR /go/src/github.com/replicatedhq/ship
 RUN make build-ci-cypress
 
 FROM cypress/browsers:chrome67
-# Unzipping of Cypress binary very slow through npm install
-# Instead, pull binary directly
-# TODO: Verify checksum of binary
-# See https://github.com/cypress-io/cypress/issues/812
-RUN curl https://download.cypress.io/desktop/3.1.0?platform=linux64 -L -o cypress.zip
-RUN mkdir -p /Cypress/3.1.0
-RUN unzip -q cypress.zip -d /Cypress/3.1.0
-ENV CYPRESS_CACHE_FOLDER=/Cypress
 
 WORKDIR /repo
+COPY Cypress /repo/Cypress
+ENV CYPRESS_CACHE_FOLDER=/repo/Cypress
 ADD web/app/cypress.json /repo/web/app/cypress.json
 ADD web/app/cypress /repo/web/app/cypress
 ADD Makefile /repo/Makefile
