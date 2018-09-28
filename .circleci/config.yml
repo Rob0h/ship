@@ -75,18 +75,10 @@ jobs:
       - image: circleci/node:9
     working_directory: ~/repo
     steps:
-      - restore_cache:
-          keys:
-            - cypress-3.1.0-{{ checksum "/Cypress/3.1.0" }}
       - run: |
           curl https://download.cypress.io/desktop/3.1.0?platform=linux64 -L -o cypress.zip
           mkdir -p Cypress/3.1.0
           unzip -q cypress.zip -d Cypress/3.1.0
-      - save_cache:
-          paths:
-            - Cypress/3.1.0
-          key: cypress-3.1.0-{{ checksum "cypress.zip" }}
-
       - persist_to_workspace:
           root: ~/repo
           paths:
@@ -98,7 +90,6 @@ jobs:
     working_directory: ~/repo
     steps:
       - checkout
-      - setup_remote_docker
       - restore_cache:
           keys:
             - yarn-packages-v2-{{ checksum "web/init/yarn.lock" }}-{{ checksum "web/app/yarn.lock" }}
@@ -118,21 +109,40 @@ jobs:
           paths:
             - web/app/build
 
-  e2e-init:
+  e2e-init-build:
     docker:
-      - image: circleci/node:9
-    working_directory: ~/repo
+      - image: avcosystems/golang-node
+    working_directory: /go/src/github.com/replicatedhq/ship
+    environment:
+      GOPATH: /go
     steps:
       - checkout
-      - setup_remote_docker
+      - attach_workspace:
+          at: /go/src/github.com/replicatedhq/ship
+      - run:
+          name: Build Ship
+          command: make build-ci-cypress
+      - persist_to_workspace:
+          root: /go/src/github.com/replicatedhq/ship
+          paths:
+            - bin/ship
+
+  e2e-init:
+    docker:
+      - image: cypress/browsers:chrome67
+    working_directory: ~/repo
+    environment:
+      CYPRESS_CACHE_FOLDER: /repo/Cypress
+    steps:
+      - checkout
       - attach_workspace:
           at: ~/repo
       - run:
-          name: Build Ship Cypress Docker Image
-          command: docker build -t replicatedhq/ship-cypress:latest -f ./web/app/cypress/Dockerfile .
+          name: Install cypress
+          command: CYPRESS_INSTALL_BINARY=0 CI=true npm i cypress@3.1.0
       - run:
-          name: Run Ship Cypress Tests
-          command: docker run -it replicatedhq/ship-cypress:latest
+          name: Run cypress test
+          command: make cypress_base
 
   integration:
     machine: true
@@ -257,10 +267,13 @@ workflows:
     jobs:
       - e2e-init-cypress
       - e2e-init-build-ui
-      - e2e-init:
+      - e2e-init-build:
           requires:
           - e2e-init-cypress
           - e2e-init-build-ui
+      - e2e-init:
+          requires:
+          - e2e-init-build
 
   # Stable deploys the `alpha` and `latest` tags to dockerhub and github
   stable:
